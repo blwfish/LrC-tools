@@ -1,0 +1,33 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+
+# Checkpoints and data
+checkpoint_*.json
+failed_images.json
+
+# Qdrant storage (local database)
+qdrant_storage/
+
+# Temp files
+*.tmp
+.DS_Store
+
+# Sample data (machine-specific)
+sample_*.txt
+
+# Internal docs (superseded by README)
+HANDOFF_*.md
+SEMANTIC_SEARCH_SETUP.md
+
+# IDE
+.vscode/
+.idea/

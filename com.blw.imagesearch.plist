@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.blw.imagesearch</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Volumes/Additional Files/development/imageSearch/venv/bin/python3</string>
+        <string>/Volumes/Additional Files/development/imageSearch/search_server.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Volumes/Additional Files/development/imageSearch</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>QDRANT_HOST</key>
+        <string>localhost</string>
+        <key>QDRANT_PORT</key>
+        <string>6333</string>
+        <key>COLLECTION_NAME</key>
+        <string>images_full</string>
+        <key>SEARCH_SERVER_PORT</key>
+        <string>5555</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Volumes/Additional Files/development/imageSearch/search_server.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Volumes/Additional Files/development/imageSearch/search_server.log</string>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
