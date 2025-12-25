@@ -91,10 +91,17 @@ python embed_full_archive.py
 
 This will take several hours for large libraries (500k images ≈ 15-20 hours on M4 Max).
 
-**For Nikon Z9 NEF files** (or other newer RAW formats PIL can't read):
+The script automatically handles RAW files (NEF, DNG, CR2, ARW, etc.) by falling back to dcraw when PIL can't read them. Install dcraw first:
+
 ```bash
-# After main indexing completes
-python embed_nef_retry.py
+# macOS
+brew install dcraw
+
+# Ubuntu/Debian
+sudo apt install dcraw
+
+# Windows
+# Download from https://www.dechifro.org/dcraw/
 ```
 
 ### 4. Install the search server as a service
@@ -195,11 +202,9 @@ curl -X POST http://localhost:5555/search \
 | File | Description |
 |------|-------------|
 | `search_server.py` | Flask HTTP server with CLIP model |
-| `embed_full_archive.py` | Main indexing script |
-| `embed_nef_retry.py` | Retry failed NEFs using dcraw |
-| `embed_2025.py` | Index newer images with dcraw support |
+| `embed_full_archive.py` | Indexing script (PIL + dcraw fallback) |
 | `search.py` | CLI search tool (standalone) |
-| `com.blw.imagesearch.plist` | launchd service configuration |
+| `com.blw.imagesearch.plist` | launchd service configuration (macOS) |
 | `SemanticSearch.lrplugin/` | Lightroom Classic plugin |
 
 ## Troubleshooting

@@ -6,9 +6,11 @@ Supports checkpointing and resume after interruption.
 
 import os
 import json
+import subprocess
 import torch
 import open_clip
 from PIL import Image
+from io import BytesIO
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from tqdm import tqdm
@@ -26,7 +28,8 @@ COLLECTION_NAME = "images_full"
 BATCH_SIZE = 32
 CHECKPOINT_INTERVAL = 100  # Save checkpoint every N batches
 
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.dng', '.raw', '.tiff', '.tif', '.nef', '.png', '.raf'}
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.dng', '.raw', '.tiff', '.tif', '.nef', '.png', '.raf', '.cr2', '.cr3', '.arw', '.orf', '.rw2'}
+RAW_EXTENSIONS = {'.nef', '.raw', '.dng', '.raf', '.cr2', '.cr3', '.arw', '.orf', '.rw2'}  # Use dcraw fallback for these
 MAX_IMAGE_PIXELS = 200_000_000  # Skip images over 200MP to avoid memory issues
 
 # Select best available device: CUDA (NVIDIA), MPS (Apple Silicon), or CPU
@@ -93,30 +96,62 @@ def get_image_id(path):
     """Generate a stable numeric ID from path."""
     return int(hashlib.md5(path.encode()).hexdigest()[:15], 16)
 
-def load_and_preprocess_image(path, preprocess):
-    """Load and preprocess a single image, handling various formats."""
+def load_via_dcraw(path, preprocess):
+    """Load RAW file using dcraw as fallback."""
     try:
-        # Check file size first as a heuristic for huge images
+        # dcraw: -c = stdout, -w = camera white balance, -h = half-size (faster, still >>224px)
+        result = subprocess.run(
+            ['dcraw', '-c', '-w', '-h', path],
+            capture_output=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            return None, f"dcraw failed: {result.stderr.decode()[:100]}"
+
+        img = Image.open(BytesIO(result.stdout))
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        return preprocess(img), None
+    except subprocess.TimeoutExpired:
+        return None, "dcraw timeout"
+    except Exception as e:
+        return None, f"dcraw error: {str(e)}"
+
+def load_via_pil(path, preprocess):
+    """Load image using PIL."""
+    try:
         file_size = os.path.getsize(path)
         if file_size > 500_000_000:  # 500MB file size limit
             return None, f"File too large: {file_size / 1e9:.1f}GB"
 
-        # Set a high but not unlimited pixel limit
         Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
-
         img = Image.open(path)
 
-        # Check actual dimensions
         width, height = img.size
         if width * height > MAX_IMAGE_PIXELS:
             return None, f"Image too large: {width}x{height} ({width*height/1e6:.0f}MP)"
 
-        # Convert to RGB (handles RGBA, grayscale, etc.)
         if img.mode != 'RGB':
             img = img.convert('RGB')
         return preprocess(img), None
     except Exception as e:
         return None, str(e)
+
+def load_and_preprocess_image(path, preprocess):
+    """Load and preprocess image. Try PIL first, fall back to dcraw for RAW files."""
+    ext = os.path.splitext(path)[1].lower()
+
+    # Try PIL first (fast for JPEGs, works for many formats)
+    result, error = load_via_pil(path, preprocess)
+    if result is not None:
+        return result, None
+
+    # For RAW files, try dcraw as fallback
+    if ext in RAW_EXTENSIONS:
+        return load_via_dcraw(path, preprocess)
+
+    # Not a RAW file and PIL failed
+    return None, error
 
 def main():
     log(f"Starting full archive embedding")
