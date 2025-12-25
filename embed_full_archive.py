@@ -97,11 +97,26 @@ def get_image_id(path):
     return int(hashlib.md5(path.encode()).hexdigest()[:15], 16)
 
 def load_via_dcraw(path, preprocess):
-    """Load RAW file using dcraw as fallback."""
+    """Load RAW file using dcraw - extract embedded preview first, demosaic as fallback."""
+    # Try extracting embedded JPEG preview first (fast: ~0.1s vs ~8s for demosaic)
     try:
-        # dcraw: -c = stdout, -w = camera white balance, -h = half-size (faster, still >>224px)
         result = subprocess.run(
-            ['dcraw', '-c', '-w', '-h', path],
+            ['dcraw', '-e', '-c', path],  # -e = extract thumbnail, -c = stdout
+            capture_output=True,
+            timeout=5
+        )
+        if result.returncode == 0 and len(result.stdout) > 0:
+            img = Image.open(BytesIO(result.stdout))
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            return preprocess(img), None
+    except:
+        pass  # Fall through to demosaic
+
+    # Fallback: full demosaic (slow but works for files without embedded preview)
+    try:
+        result = subprocess.run(
+            ['dcraw', '-c', '-w', '-h', path],  # -w = white balance, -h = half-size
             capture_output=True,
             timeout=30
         )
