@@ -29,8 +29,15 @@ CHECKPOINT_INTERVAL = 100  # Save checkpoint every N batches
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.dng', '.raw', '.tiff', '.tif', '.nef', '.png', '.raf'}
 MAX_IMAGE_PIXELS = 200_000_000  # Skip images over 200MP to avoid memory issues
 
-# Use MPS (Metal) on Apple Silicon
-DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+# Select best available device: CUDA (NVIDIA), MPS (Apple Silicon), or CPU
+def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+DEVICE = get_device()
 
 def log(msg):
     """Log to both console and file."""

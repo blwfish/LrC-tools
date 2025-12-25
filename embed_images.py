@@ -19,8 +19,15 @@ QDRANT_PORT = 6333
 COLLECTION_NAME = "images_10k"
 BATCH_SIZE = 32
 
-# Use MPS (Metal) on Apple Silicon
-DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+# Select best available device: CUDA (NVIDIA), MPS (Apple Silicon), or CPU
+def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+DEVICE = get_device()
 print(f"Using device: {DEVICE}")
 
 def load_model():

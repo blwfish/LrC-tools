@@ -10,15 +10,29 @@ Instead of searching by keywords or metadata, describe what you're looking for: 
 - **Fast** - Sub-second search across 500k+ images after initial model load
 - **Selection-aware** - Search within selected photos or entire catalog
 - **LrC integration** - Results appear as collections in Lightroom Classic
-- **GPU accelerated** - Uses Apple Silicon MPS for fast inference
+- **GPU accelerated** - CUDA (NVIDIA) or MPS (Apple Silicon)
 
 ## Requirements
 
-- macOS with Apple Silicon (M1/M2/M3/M4) recommended
+### Hardware
+
+| Use Case | Minimum | Recommended |
+|----------|---------|-------------|
+| Query only (pre-indexed) | 16GB RAM + GPU | 24GB RAM (LrC uses 8-12GB) |
+| Indexing + query | 24GB RAM | 32GB RAM |
+| Indexing while using LrC+PS | 32GB RAM | 48GB+ RAM |
+
+**Supported GPUs:**
+- **macOS**: Apple Silicon (M1/M2/M3/M4) - uses MPS
+- **Windows/Linux**: NVIDIA GPU (RTX 3060+) - uses CUDA
+- **CPU fallback**: Works but very slow, not recommended
+
+### Software
+
 - Python 3.10+
-- [Qdrant](https://qdrant.tech/) vector database
-- [Ollama](https://ollama.ai/) (not required for search, but useful for other tools)
+- [Qdrant](https://qdrant.tech/) vector database (via Docker or native)
 - Adobe Lightroom Classic
+- **Windows/Linux**: NVIDIA CUDA toolkit
 
 ## Architecture
 

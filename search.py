@@ -13,7 +13,15 @@ QDRANT_HOST = "localhost"
 QDRANT_PORT = 6333
 COLLECTION_NAME = "images_10k"
 
-DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+# Select best available device: CUDA (NVIDIA), MPS (Apple Silicon), or CPU
+def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+DEVICE = get_device()
 
 def load_model():
     """Load CLIP model for text encoding."""

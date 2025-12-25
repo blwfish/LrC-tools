@@ -27,7 +27,15 @@ COLLECTION_NAME = "images_full"
 BATCH_SIZE = 16  # Smaller batches since dcraw is slower
 CHECKPOINT_INTERVAL = 50
 
-DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+# Select best available device: CUDA (NVIDIA), MPS (Apple Silicon), or CPU
+def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+DEVICE = get_device()
 
 def log(msg):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
