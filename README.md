@@ -1,249 +1,303 @@
 # Semantic Image Search for Lightroom Classic
 
-Search your photo library using natural language queries powered by CLIP embeddings and Qdrant vector database.
+**Find photos by describing them in plain English.**
 
-Instead of searching by keywords or metadata, describe what you're looking for: "red race car at sunset", "person holding coffee", "snowy mountain landscape" - and find visually matching images.
+Instead of scrolling through thousands of images or relying on keywords you remembered to add, just type what you're looking for:
 
-## Features
+- "red Porsche at sunset"
+- "person laughing at camera"
+- "foggy mountain landscape"
+- "crowd cheering at race track"
 
-- **Natural language search** - Describe images in plain English
-- **Fast** - Sub-second search across 500k+ images after initial model load
-- **Selection-aware** - Search within selected photos or entire catalog
-- **LrC integration** - Results appear as collections in Lightroom Classic
-- **GPU accelerated** - CUDA (NVIDIA) or MPS (Apple Silicon)
+The system understands the *visual content* of your images, not just their filenames or metadata.
+
+## What This Does
+
+This tool adds a search dialog to Lightroom Classic. You type a description, and it finds matching photos from your library. Results appear as a collection you can browse, rate, or export like any other.
+
+It works by analyzing each image and creating a mathematical "fingerprint" of its visual content. When you search, it compares your description against all those fingerprints to find the best matches. This happens in under a second, even with hundreds of thousands of images.
 
 ## Requirements
 
-### Hardware
+### Your Computer
 
-| Use Case | Minimum | Recommended |
-|----------|---------|-------------|
-| Query only (pre-indexed) | 16GB RAM + GPU | 24GB RAM (LrC uses 8-12GB) |
-| Indexing + query | 24GB RAM | 32GB RAM |
-| Indexing while using LrC+PS | 32GB RAM | 48GB+ RAM |
+- **Mac with Apple Silicon** (M1, M2, M3, or M4) - strongly recommended
+- At least **24GB of RAM** if you want to use Lightroom while searching
+- Enough disk space for the search index (roughly 1GB per 100,000 images)
 
-**Supported GPUs:**
-- **macOS**: Apple Silicon (M1/M2/M3/M4) - uses MPS
-- **Windows/Linux**: NVIDIA GPU (RTX 3060+) - uses CUDA
-- **CPU fallback**: Works but very slow, not recommended
+Windows and Linux with NVIDIA graphics cards also work, but this guide focuses on Mac.
 
-### Software
+### Your Photo Library
 
-- Python 3.10+
-- [Qdrant](https://qdrant.tech/) vector database (via Docker or native)
-- Adobe Lightroom Classic
-- **Windows/Linux**: NVIDIA CUDA toolkit
+- Images must be accessible on a mounted drive (internal, external, or NAS)
+- Supports JPEG, TIFF, PNG, and most RAW formats (NEF, DNG, CR2, CR3, ARW, RAF, ORF, etc.)
+- The system reads your actual image files, not Lightroom's previews
 
-## Architecture
+## How It Works (The Simple Version)
 
-```
-┌─────────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Lightroom Classic  │────▶│  Search Server   │────▶│   Qdrant    │
-│  (Lua Plugin)       │     │  (Flask + CLIP)  │     │  (Vectors)  │
-└─────────────────────┘     └──────────────────┘     └─────────────┘
-                                    │
-                                    ▼
-                            ┌──────────────────┐
-                            │  CLIP ViT-L-14   │
-                            │  (Text Encoder)  │
-                            └──────────────────┘
-```
+Three pieces work together:
 
-## Installation
+1. **The Index** - A database containing the visual "fingerprint" of each image
+2. **The Search Server** - A background process that handles search requests
+3. **The Lightroom Plugin** - Adds the search dialog to Lightroom
 
-### 1. Install Qdrant
+You build the index once (this takes a while). After that, searching is nearly instant.
+
+---
+
+## Setup Guide
+
+This requires some work in Terminal. Don't worry - you'll copy and paste most commands, and I'll explain what each one does.
+
+### Step 1: Install the Required Tools
+
+Open **Terminal** (find it in Applications > Utilities, or search for it in Spotlight).
+
+First, install Homebrew if you don't have it. This is a tool that makes installing other software easier:
 
 ```bash
-# Using Docker (recommended)
-docker pull qdrant/qdrant
-docker run -p 6333:6333 -v ~/qdrant_data:/qdrant/storage qdrant/qdrant
-
-# Or using Homebrew
-brew install qdrant
-qdrant
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### 2. Clone and set up Python environment
+Follow any instructions it gives you. You may need to enter your password.
+
+Now install the tools we need:
 
 ```bash
+brew install python@3.11 dcraw qdrant
+```
+
+This installs:
+- **Python** - A programming language that runs the search system
+- **dcraw** - A tool for reading RAW camera files
+- **Qdrant** - The database that stores image fingerprints
+
+### Step 2: Download This Project
+
+Decide where you want to keep this project. Your home folder is fine:
+
+```bash
+cd ~
 git clone https://github.com/blwfish/LrC-tools.git
 cd LrC-tools
+```
 
+(If you received this as a folder instead of from GitHub, just navigate to that folder in Terminal using `cd /path/to/folder`.)
+
+### Step 3: Set Up Python
+
+Create an isolated Python environment for this project:
+
+```bash
 python3 -m venv venv
 source venv/bin/activate
+```
+
+Your terminal prompt should now show `(venv)` at the beginning.
+
+Install the required Python packages:
+
+```bash
 pip install torch torchvision open-clip-torch qdrant-client flask pillow tqdm
 ```
 
-### 3. Index your images
+This downloads about 2GB of files. It may take a few minutes.
 
-Edit `embed_full_archive.py` to set your archive path:
+### Step 4: Build the Image Index
 
-```python
-ARCHIVE_ROOT = "/path/to/your/images/"
+This is the slow part. The system needs to analyze every image in your library and create its fingerprint. For 100,000 images, expect 8-10 hours. For 500,000 images, expect 2-3 days.
+
+You only do this once. After that, you can add new images incrementally.
+
+**Start the fingerprint database:**
+
+Open a new Terminal window and run:
+
+```bash
+qdrant
 ```
 
-Then run the indexing:
+Leave this window open. Qdrant needs to stay running while you build the index.
+
+**Configure and run the indexer:**
+
+Back in your first Terminal window, edit the indexing script to point to your images:
+
+```bash
+nano embed_full_archive.py
+```
+
+Find this line near the top:
+
+```python
+ARCHIVE_ROOT = "/Volumes/archive2/images/"
+```
+
+Change the path to wherever your images are stored. Press **Ctrl+O** to save, then **Ctrl+X** to exit.
+
+Now start the indexing:
 
 ```bash
 source venv/bin/activate
-python embed_full_archive.py
+nohup python embed_full_archive.py >> embed_full.log 2>&1 &
 ```
 
-This will take several hours for large libraries (500k images ≈ 15-20 hours on M4 Max).
+This runs in the background. You can close Terminal, restart your computer, whatever - it will keep going.
 
-The script automatically handles RAW files (NEF, DNG, CR2, ARW, etc.) by falling back to dcraw when PIL can't read them. Install dcraw first:
+**Check progress:**
 
 ```bash
-# macOS
-brew install dcraw
-
-# Ubuntu/Debian
-sudo apt install dcraw
-
-# Windows
-# Download from https://www.dechifro.org/dcraw/
+tail -f embed_full.log
 ```
 
-### 4. Install the search server as a service
+Press **Ctrl+C** to stop watching the log.
+
+### Step 5: Set Up Automatic Startup
+
+You want the search server and database to start automatically when you log in.
+
+**For Qdrant**, create a startup file:
 
 ```bash
-# Copy launchd plist
+nano ~/Library/LaunchAgents/com.qdrant.plist
+```
+
+Paste this content:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.qdrant</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/qdrant</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+```
+
+Save and exit (**Ctrl+O**, **Ctrl+X**).
+
+**For the search server**, the project includes a startup file. Copy it and adjust the paths:
+
+```bash
 cp com.blw.imagesearch.plist ~/Library/LaunchAgents/
-
-# Edit paths in the plist if needed
 nano ~/Library/LaunchAgents/com.blw.imagesearch.plist
+```
 
-# Load the service
+Update any paths to match where you installed the project.
+
+**Enable both services:**
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.qdrant.plist
 launchctl load ~/Library/LaunchAgents/com.blw.imagesearch.plist
 ```
 
-### 5. Install the Lightroom plugin
+### Step 6: Install the Lightroom Plugin
+
+Create a link from Lightroom's plugin folder to this project:
 
 ```bash
-# Symlink plugin to LrC Modules folder
 ln -s "$(pwd)/SemanticSearch.lrplugin" \
     ~/Library/Application\ Support/Adobe/Lightroom/Modules/SemanticSearch.lrplugin
 ```
 
-Or manually add via Lightroom: **File > Plug-in Manager > Add**
+Restart Lightroom Classic.
 
-### 6. Restart Lightroom Classic
+---
 
-## Usage
+## Using the Search
 
-1. Open Lightroom Classic Library module
-2. **Library > Plug-in Extras > Semantic Search...**
-3. Enter a natural language query (e.g., "blue porsche on race track")
-4. Adjust parameters if desired:
-   - **Max results**: Limit number of results (default: 500)
-   - **Return all matches**: Ignore limit, return everything above threshold
-   - **Min similarity**: Minimum score threshold (default: 0.20)
-   - **Search all photos**: Override selection and search entire catalog
-5. Click **Search**
-6. Results appear in a new collection under `0_Semantic_Searches`
+1. Open Lightroom Classic and go to the **Library** module
+2. From the menu: **Library > Plug-in Extras > Semantic Search...**
+3. Type what you're looking for
+4. Click **Search**
+5. Results appear in a collection under **0_Semantic_Searches**
 
-### Tips
+### Search Tips
 
-- CLIP similarity scores typically range 0.20-0.35 for good matches
-- Lower the min similarity threshold for broader results
-- Select photos first to constrain search to a subset
-- Searches are fast (~50-100ms) after the model is loaded
+- **Be specific**: "yellow Corvette on race track" works better than "car"
+- **Describe the scene**: "crowd watching fireworks at night" finds those moments
+- **Include context**: "person standing on mountain summit with clouds below"
+- **Try variations**: If "sunset" doesn't find what you want, try "orange sky" or "golden hour"
 
-## Managing the Service
+### Understanding Results
 
-```bash
-# Check status
-launchctl list | grep imagesearch
+Each result has a similarity score between 0 and 1. In practice:
+- **0.30+** = Strong match, very likely what you're looking for
+- **0.25-0.30** = Good match, worth reviewing
+- **0.20-0.25** = Possible match, might be relevant
+- **Below 0.20** = Weak match, probably not what you want
 
-# View logs
-tail -f /path/to/LrC-tools/search_server.log
+The default threshold is 0.20. You can adjust this in the search dialog.
 
-# Restart
-launchctl unload ~/Library/LaunchAgents/com.blw.imagesearch.plist
-launchctl load ~/Library/LaunchAgents/com.blw.imagesearch.plist
+---
 
-# Stop
-launchctl unload ~/Library/LaunchAgents/com.blw.imagesearch.plist
-```
+## Keeping Your Index Updated
 
-## Health Check
+When you add new images to your library, you'll need to index them. The simplest approach:
 
-```bash
-# Check server status
-curl http://localhost:5555/health
+1. Run the indexer again - it will skip images already in the database
+2. Or create a script that indexes just your new folder
 
-# Test search from command line
-curl -X POST http://localhost:5555/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "sunset over ocean", "limit": 10}'
-```
+(A more sophisticated incremental update system is on the roadmap.)
 
-## Configuration
-
-### Search Server (environment variables)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `QDRANT_HOST` | localhost | Qdrant server host |
-| `QDRANT_PORT` | 6333 | Qdrant server port |
-| `COLLECTION_NAME` | images_full | Qdrant collection name |
-| `SEARCH_SERVER_PORT` | 5555 | HTTP server port |
-
-### Plugin (Config.lua)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `DEFAULT_MAX_RESULTS` | 500 | Default result limit |
-| `DEFAULT_MIN_SCORE` | 0.20 | Default similarity threshold |
-| `COLLECTION_SET_NAME` | 0_Semantic_Searches | Collection set for results |
-
-## Files
-
-| File | Description |
-|------|-------------|
-| `search_server.py` | Flask HTTP server with CLIP model |
-| `embed_full_archive.py` | Indexing script (PIL + dcraw fallback) |
-| `search.py` | CLI search tool (standalone) |
-| `com.blw.imagesearch.plist` | launchd service configuration (macOS) |
-| `SemanticSearch.lrplugin/` | Lightroom Classic plugin |
+---
 
 ## Troubleshooting
 
 ### "Failed to connect to search server"
-- Check if server is running: `curl http://localhost:5555/health`
-- Start manually: `python search_server.py`
-- Check logs for errors
 
-### "Server error: timed out"
-- Qdrant may be overloaded or indexing
-- Restart search server
-- Check Qdrant status: `curl http://localhost:6333/collections/images_full`
+The search server isn't running. Try:
+
+```bash
+# Check if it's running
+curl http://localhost:5555/health
+
+# If not, start it manually
+cd ~/LrC-tools
+source venv/bin/activate
+python search_server.py
+```
 
 ### "No matching images found"
-- Check if images are indexed: compare Qdrant point count to catalog size
-- Images may not be in the indexed paths
-- Try lowering min similarity threshold
 
-### Collection set error on first search
-- This was fixed - update to latest version
-- If persists, manually create `0_Semantic_Searches` collection set in LrC
+- Your images might not be indexed yet (check if indexing is complete)
+- The images might be stored in a different location than what was indexed
+- Try a more general search term
 
-## Performance
+### Search is slow
 
-Tested on M4 Max with 500k images:
+The first search after starting the server takes 5-10 seconds while the AI model loads into memory. Subsequent searches should be under a second.
 
-| Operation | Time |
-|-----------|------|
-| Model load (cold start) | ~5-6 seconds |
-| Search query | 50-100ms |
-| Indexing | ~3-4 images/second |
+### Lightroom doesn't show the plugin
 
-## License
+- Make sure you restarted Lightroom after installing
+- Check **File > Plug-in Manager** - the plugin should appear there
+- Verify the symbolic link exists: `ls -la ~/Library/Application\ Support/Adobe/Lightroom/Modules/`
 
-MIT
+---
+
+## Technical Details (For the Curious)
+
+This system uses **CLIP** (Contrastive Language-Image Pre-training), an AI model developed by OpenAI that understands both images and text. It was trained on hundreds of millions of image-caption pairs from the internet.
+
+When you index an image, CLIP converts it into a list of 768 numbers (a "vector") that captures its visual essence. When you search, CLIP converts your text query into the same kind of vector. Finding matches is just finding which image vectors are closest to your query vector.
+
+The vector database (Qdrant) is optimized for exactly this kind of "find the nearest neighbors" search, which is why it can search hundreds of thousands of images in milliseconds.
+
+---
 
 ## Credits
 
-- [OpenCLIP](https://github.com/mlfoundations/open_clip) - CLIP implementation
-- [Qdrant](https://qdrant.tech/) - Vector database
-- [Flask](https://flask.palletsprojects.com/) - HTTP server
+- **OpenCLIP** - Open source CLIP implementation
+- **Qdrant** - Vector database
+- **dcraw** - RAW file decoder by Dave Coffin
