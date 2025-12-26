@@ -54,14 +54,17 @@ class Database:
                 FOREIGN KEY (path) REFERENCES files(path) ON DELETE CASCADE
             );
 
-            -- Racing tagger state (for future use by LrC-classification)
+            -- Racing tagger state (for LrC-classification)
             CREATE TABLE IF NOT EXISTS racing_tags (
                 path TEXT PRIMARY KEY,
                 tagged_at TEXT,
                 xmp_written_at TEXT,
                 series_profile TEXT,
+                keywords TEXT,  -- JSON array of keywords
+                metadata TEXT,  -- JSON object from vision model
                 FOREIGN KEY (path) REFERENCES files(path) ON DELETE CASCADE
             );
+            CREATE INDEX IF NOT EXISTS idx_racing_profile ON racing_tags(series_profile);
         """)
         self.conn.commit()
 
@@ -223,6 +226,78 @@ class Database:
         """, data)
         self.conn.commit()
 
+    # --- Racing tag operations ---
+
+    def add_racing_tag(self, path: str, series_profile: str,
+                       keywords: list = None, metadata: dict = None):
+        """Record that a file has been tagged by racing_tagger.
+
+        Args:
+            path: File path
+            series_profile: Profile used (e.g., 'racing-porsche')
+            keywords: List of keywords extracted (stored as JSON)
+            metadata: Full metadata dict from vision model (stored as JSON)
+        """
+        import json
+        self.conn.execute("""
+            INSERT OR REPLACE INTO racing_tags
+            (path, tagged_at, series_profile, keywords, metadata)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            path,
+            datetime.now().isoformat(),
+            series_profile,
+            json.dumps(keywords) if keywords else None,
+            json.dumps(metadata) if metadata else None
+        ))
+        self.conn.commit()
+
+    def get_racing_tag(self, path: str) -> Optional[sqlite3.Row]:
+        """Get racing tag record for a file."""
+        return self.conn.execute(
+            "SELECT * FROM racing_tags WHERE path = ?", (path,)
+        ).fetchone()
+
+    def racing_tag_exists(self, path: str) -> bool:
+        """Check if a file has been tagged."""
+        return self.get_racing_tag(path) is not None
+
+    def update_racing_xmp_written(self, path: str):
+        """Record that XMP was written for a tagged file."""
+        self.conn.execute("""
+            UPDATE racing_tags SET xmp_written_at = ? WHERE path = ?
+        """, (datetime.now().isoformat(), path))
+        self.conn.commit()
+
+    def delete_racing_tag(self, path: str):
+        """Delete racing tag record."""
+        self.conn.execute("DELETE FROM racing_tags WHERE path = ?", (path,))
+        self.conn.commit()
+
+    def racing_tag_count(self) -> int:
+        """Get total number of racing tags."""
+        return self.conn.execute("SELECT COUNT(*) FROM racing_tags").fetchone()[0]
+
+    def get_all_racing_tag_paths(self) -> set:
+        """Get all paths that have racing tags."""
+        rows = self.conn.execute("SELECT path FROM racing_tags").fetchall()
+        return {row['path'] for row in rows}
+
+    def get_untagged_paths(self, limit: int = None) -> list:
+        """Get paths that have CLIP embeddings but no racing tags.
+
+        Useful for finding images to tag next.
+        """
+        query = """
+            SELECT ce.path FROM clip_embeddings ce
+            LEFT JOIN racing_tags rt ON ce.path = rt.path
+            WHERE rt.path IS NULL
+        """
+        if limit:
+            query += f" LIMIT {limit}"
+        rows = self.conn.execute(query).fetchall()
+        return [row['path'] for row in rows]
+
     # --- Stats ---
 
     def stats(self) -> dict:
@@ -233,7 +308,5 @@ class Database:
             'directories': self.conn.execute(
                 "SELECT COUNT(*) FROM directories"
             ).fetchone()[0],
-            'racing_tags': self.conn.execute(
-                "SELECT COUNT(*) FROM racing_tags"
-            ).fetchone()[0],
+            'racing_tags': self.racing_tag_count(),
         }

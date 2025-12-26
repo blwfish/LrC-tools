@@ -3,7 +3,6 @@ Shared configuration for image processing tools.
 """
 
 import os
-import torch
 
 # Archive location
 ARCHIVE_ROOT = "/Volumes/archive2/images/"
@@ -34,8 +33,12 @@ COLLECTION_NAME = "images_full"
 
 def get_device():
     """Select best available device: CUDA (NVIDIA), MPS (Apple Silicon), or CPU."""
-    if torch.cuda.is_available():
-        return "cuda"
-    elif torch.backends.mps.is_available():
-        return "mps"
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        elif torch.backends.mps.is_available():
+            return "mps"
+    except ImportError:
+        pass
     return "cpu"

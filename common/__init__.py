@@ -3,6 +3,7 @@ Shared infrastructure for image processing tools.
 Used by imageSearch (CLIP embeddings) and racing_tagger (vision AI tagging).
 """
 
+# Core imports that don't require heavy dependencies
 from .config import (
     ARCHIVE_ROOT,
     IMAGE_EXTENSIONS,
@@ -16,7 +17,17 @@ from .files import (
     find_changed_directories,
     scan_directory_for_images,
 )
-from .image_load import load_and_preprocess_image, load_image_pil
+
+# Image loading requires PIL - import lazily
+def load_and_preprocess_image(path, preprocess):
+    """Lazy import wrapper for image loading."""
+    from .image_load import load_and_preprocess_image as _load
+    return _load(path, preprocess)
+
+def load_image_pil(path):
+    """Lazy import wrapper for PIL image loading."""
+    from .image_load import load_image_pil as _load
+    return _load(path)
 
 __all__ = [
     'ARCHIVE_ROOT',
