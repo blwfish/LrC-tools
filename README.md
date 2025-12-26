@@ -243,12 +243,57 @@ The default threshold is 0.20. You can adjust this in the search dialog.
 
 ## Keeping Your Index Updated
 
-When you add new images to your library, you'll need to index them. The simplest approach:
+After importing new photos, run the update script to add them to the index:
 
-1. Run the indexer again - it will skip images already in the database
-2. Or create a script that indexes just your new folder
+```bash
+cd ~/LrC-tools  # or wherever you installed this
+source venv/bin/activate
+python update_index.py
+```
 
-(A more sophisticated incremental update system is on the roadmap.)
+The updater is smart:
+- Only scans directories that have changed since the last run
+- Detects moved files (no re-indexing needed, just updates the path)
+- Skips files already in the index
+
+For a typical import of a few hundred to a few thousand photos, this takes just a few minutes.
+
+### Update Options
+
+```bash
+# Normal update - index new/moved files
+python update_index.py
+
+# Only scan a specific year
+python update_index.py --year 2025
+
+# Also remove entries for deleted files
+python update_index.py --cleanup
+
+# See what would happen without making changes
+python update_index.py --dry-run
+
+# Force a complete scan (ignore directory timestamps)
+python update_index.py --full-scan
+
+# Verbose output for debugging
+python update_index.py --verbose
+```
+
+### First-Time Migration
+
+If you're upgrading from the old checkpoint-based system, run the migration first:
+
+```bash
+python migrate_to_catalog.py
+```
+
+This creates a SQLite catalog at `~/.local/share/photo_tools/catalog.db` that tracks:
+- Which files have been indexed
+- Content hashes for move detection
+- Directory timestamps for fast scanning
+
+The migration reads your existing Qdrant data and computes hashes for all indexed files. Takes about 4-5 hours for 500k files (disk I/O bound).
 
 ---
 
